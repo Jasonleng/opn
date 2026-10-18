@@ -8,16 +8,22 @@ Models are fitted with PyMC + NumPyro using neural-network likelihoods: a LAN fo
 - fit a hierarchical model with omissions to your own dataset, defined in a short Python script ([Fitting a new dataset](#fitting-a-new-dataset)),
 - use the trained networks to add an omission likelihood to your own PyMC models.
 
+New to hierarchical fitting with omissions? The notebook `demo/fit_demo.ipynb` is a guided tour: it fits a simulated dataset step by step, explains each choice, and shows how to check and read the results ([Notebook](#notebook)).
+
 ## Quick start
 
 All commands are run from the repository root.
 
 **1. Get the code.**
 
+This version of the code is on the `v2` branch (`main` holds the original analysis code):
+
 ```bash
-git clone https://github.com/Jasonleng/opn.git
+git clone --branch v2 https://github.com/Jasonleng/opn.git
 cd opn
 ```
+
+If you already have a clone, switch to it with `git fetch origin && git checkout v2`.
 
 The task data (`data/hddm_all.csv`) is not part of the public repository; the simulations and the library do not need it.
 
@@ -98,6 +104,7 @@ Use the job-index range from the table; the resources are a starting point, adju
 ```bash
 apptainer run --bind "$PWD" opn.sif scripts/hierarchical/fit_hierarchical_angle.py --n-subjects 5   # the paper's fit
 apptainer run --bind "$PWD" opn.sif demo/fit_demo.py                                               # demo / template for any dataset
+apptainer exec --bind "$PWD" opn.sif jupyter lab --no-browser --port 8888                           # then open demo/fit_demo.ipynb: the demo step by step
 ```
 
 See [Hierarchical fitting](#hierarchical-fitting) for fitting a new dataset, the demo, and the paper's model.
@@ -157,6 +164,8 @@ Things to know:
 In a hierarchical model every participant has their own parameters, drawn from a group distribution whose mean and spread are estimated too. Participants with few trials borrow strength from the group, and condition effects can differ between participants.
 
 ### Fitting a new dataset
+
+If you are new to this, work through the demo notebook first ([Notebook](#notebook)): it runs the steps below on a small simulated dataset and shows what good results and convergence look like.
 
 A fit is defined in a short Python script. `demo/fit_demo.py` is a complete one: copy it and edit its definition section. The library (`opn.hierarchical`) checks the data, builds the model for a hierarchical DDM, angle or Weibull model, samples, saves the results and reports on convergence.
 
@@ -288,7 +297,9 @@ runs the fit (4 chains × 1000 tuning + 1000 draws) and the comparison, writing 
 
 `demo/make_demo_data.py` regenerates the data (with a fixed seed); edit it to try other designs.
 
-**Notebook.** `demo/fit_demo.ipynb` walks through the same fit step by step, with plots: the data and its omissions, `prepare_data` and `ModelSpec`, the fit, convergence checks (trace and pair plots), group-level estimates and the difficulty effect, participant estimates against the truth, and a posterior predictive check of omission rates and RTs. It reuses the fit in `demo/output/` from `make demo` if there is one, otherwise it fits (set `REFIT = True` in it to fit again). The container includes JupyterLab:
+#### Notebook
+
+`demo/fit_demo.ipynb` walks through the same fit step by step, with plots: the data and its omissions, `prepare_data` and `ModelSpec`, the fit, convergence checks (trace and pair plots), group-level estimates and the difficulty effect, participant estimates against the truth, and a posterior predictive check of omission rates and RTs. It reuses the fit in `demo/output/` from `make demo` if there is one, otherwise it fits (set `REFIT = True` in it to fit again). The container includes JupyterLab:
 
 ```bash
 apptainer exec --bind "$PWD" opn.sif jupyter lab --no-browser --port 8888   # then open the printed http://localhost:8888/... URL
