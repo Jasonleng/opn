@@ -1,0 +1,18 @@
+# macOS / editors
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Container images
+*.sif
+
+# Participant data: not for a public repository (remove this line deliberately if sharing is approved)
+data/*.csv
+
+# Quick-test runs (tests/quick_test.py)
+tests/runs/
+
+# Demo fit output (make demo)
+demo/output/

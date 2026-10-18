@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opn"
+version = "0.1.0"
+description = "Shared code for the omission (OPN) evidence-accumulation analyses"
+requires-python = ">=3.11,<3.12"
+# The pinned environment lives in requirements.txt / container/opn.def
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
