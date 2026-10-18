@@ -8,8 +8,10 @@ __pycache__/
 # Container images
 *.sif
 
-# Participant data: not for a public repository (remove this line deliberately if sharing is approved)
+# Participant data: not for a public repository (remove these lines deliberately if sharing is approved)
 data/*.csv
+# the task data, wherever a copy of it ends up
+**/hddm_all.csv
 
 # Quick-test runs (tests/quick_test.py)
 tests/runs/
