@@ -15,38 +15,40 @@ from scipy.special import expit
 HERE = os.path.dirname(os.path.abspath(__file__))
 fit_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "output")
 truth = pd.read_csv(os.path.join(HERE, "demo_truth.csv"))
-info = json.load(open(os.path.join(fit_dir, "fit_info.json")))
-post = az.from_netcdf(os.path.join(fit_dir, "posterior.nc")).posterior
-bounds = info["parameter_bounds"]
-coding = info["predictor_coding"]["difficulty"]
+fit_info = json.load(open(os.path.join(fit_dir, "fit_info.json")))
+posterior = az.from_netcdf(os.path.join(fit_dir, "posterior.nc")).posterior
+bounds = fit_info["parameter_bounds"]
+difficulty_coding = fit_info["predictor_coding"]["difficulty"]
 
 
-def to_range(x, name):
+def to_range(unbounded_value, name):
     low, high = bounds[name]
-    return low + (high - low) * expit(x)
+    return low + (high - low) * expit(unbounded_value)
 
 
 # Posterior draws on the natural scale, per subject (in the order of the fit)
-draws = {"a": post["a_subj_natural"], "t": post["t_subj_natural"], "p_lapse": post["p_lapse_subj_natural"]}
-for level, x in coding.items():
-    draws[f"v_{level}"] = to_range(post["v_subj"] + x * post["v_difficulty_subj"], "v")
+natural_draws = {"a": posterior["a_subj_natural"], "t": posterior["t_subj_natural"],
+                 "p_lapse": posterior["p_lapse_subj_natural"]}
+for level, code in difficulty_coding.items():
+    natural_draws[f"v_{level}"] = to_range(posterior["v_subj"] + code * posterior["v_difficulty_subj"], "v")
 
-rows = []
-for i, subject in enumerate(info["subjects"]):
-    true = truth.set_index("participant").loc[subject]
-    for name, d in draws.items():
-        samples = d.isel(subject=i).values.ravel()
-        low, high = az.hdi(samples, hdi_prob=0.94)
-        rows.append({"participant": subject, "parameter": name, "true": true[name],
-                     "estimate": samples.mean(), "hdi_3%": low, "hdi_97%": high,
-                     "covered": low <= true[name] <= high})
-table = pd.DataFrame(rows)
+recovery_rows = []
+for subject_index, subject in enumerate(fit_info["subjects"]):
+    true_values = truth.set_index("participant").loc[subject]
+    for name, parameter_draws in natural_draws.items():
+        samples = parameter_draws.isel(subject=subject_index).values.ravel()
+        hdi_low, hdi_high = az.hdi(samples, hdi_prob=0.94)
+        recovery_rows.append({"participant": subject, "parameter": name, "true": true_values[name],
+                              "estimate": samples.mean(), "hdi_3%": hdi_low, "hdi_97%": hdi_high,
+                              "covered": hdi_low <= true_values[name] <= hdi_high})
+recovery = pd.DataFrame(recovery_rows)
 pd.set_option("display.width", 120)
-print(table.round(3).to_string(index=False))
+print(recovery.round(3).to_string(index=False))
 print("\nPer parameter: correlation of estimate with truth across participants, and 94% HDI coverage")
-for name, g in table.groupby("parameter", sort=False):
-    r = np.corrcoef(g["true"], g["estimate"])[0, 1] if g["true"].std() > 0 else np.nan
-    print(f"  {name:8s} r = {r:5.2f}   covered {g['covered'].sum()}/{len(g)}")
-print(f"\nOverall {table['covered'].sum()}/{len(table)} true values inside the 94% HDI "
+for name, parameter_rows in recovery.groupby("parameter", sort=False):
+    correlation = (np.corrcoef(parameter_rows["true"], parameter_rows["estimate"])[0, 1]
+                   if parameter_rows["true"].std() > 0 else np.nan)
+    print(f"  {name:8s} r = {correlation:5.2f}   covered {parameter_rows['covered'].sum()}/{len(parameter_rows)}")
+print(f"\nOverall {recovery['covered'].sum()}/{len(recovery)} true values inside the 94% HDI "
       "(expect most, not necessarily all).")
-table.to_csv(os.path.join(fit_dir, "recovery.csv"), index=False)
+recovery.to_csv(os.path.join(fit_dir, "recovery.csv"), index=False)

@@ -18,32 +18,32 @@ uniform on [-OUTLIER_RT_MAX, OUTLIER_RT_MAX] (see `simulate.contaminate`).
 import jax.numpy as jnp
 from jax.scipy.special import expit
 
-EPS = 1e-64
+EPSILON = 1e-64
 OUTLIER_RT_MAX = 5.0
 # Density of a contaminant (rt, choice) pair: signed RT uniform on [-5, 5]
 OUTLIER_DENSITY = 1 / (2 * OUTLIER_RT_MAX)
 
 
-def scaled_sigmoid(x, low, high):
+def scaled_sigmoid(unbounded_value, low, high):
     """Map an unbounded value into (low, high)."""
-    return expit(x) * (high - low) + low
+    return expit(unbounded_value) * (high - low) + low
 
 
-def outlier_probability(x):
+def outlier_probability(unbounded_weight):
     """Map an unbounded value to an outlier probability in (0, 0.1) (summed family)."""
-    return 0.1 * jnp.exp(x) / (1 + jnp.exp(x))
+    return 0.1 * jnp.exp(unbounded_weight) / (1 + jnp.exp(unbounded_weight))
 
 
-def omission_probability(net_out, network="cpn"):
+def omission_probability(network_output, network="cpn"):
     """P(omission) from an omission-network output.
 
     network="cpn": the network outputs log P(response before deadline) (angle, DDM).
     network="opn": the network outputs log P(omission) (Weibull).
     """
     if network == "cpn":
-        return 1 - jnp.exp(net_out) + EPS
+        return 1 - jnp.exp(network_output) + EPSILON
     if network == "opn":
-        return jnp.exp(net_out) + EPS
+        return jnp.exp(network_output) + EPSILON
     raise ValueError(f"network must be 'cpn' or 'opn', got {network!r}")
 
 
@@ -83,13 +83,13 @@ def make_omission_logp(forward, network="cpn", outlier=False, rt_max=OUTLIER_RT_
     on [0, rt_max].
     """
     def logp(data, *params):
-        n_omission = jnp.sum(data > 0)
-        net_params = params[:-1] if outlier else params
-        net_out = jnp.squeeze(forward(jnp.stack(net_params).reshape(1, -1)))
-        p_omission = omission_probability(net_out, network)
+        n_omitted = jnp.sum(data > 0)
+        network_params = params[:-1] if outlier else params
+        network_output = jnp.squeeze(forward(jnp.stack(network_params).reshape(1, -1)))
+        p_omission = omission_probability(network_output, network)
         if outlier:
             p_omission = mix_outlier_omission(p_omission, outlier_probability(params[-1]), params[-2], rt_max)
-        return jnp.log(p_omission) * n_omission
+        return jnp.log(p_omission) * n_omitted
 
     return logp
 
@@ -98,8 +98,8 @@ def make_omission_logp(forward, network="cpn", outlier=False, rt_max=OUTLIER_RT_
 
 def transform_params(params, param_names, bounds):
     """Apply `scaled_sigmoid` to every parameter named in `bounds`; leave the rest unchanged."""
-    return [scaled_sigmoid(p, *bounds[name]) if name in bounds else p
-            for p, name in zip(params, param_names)]
+    return [scaled_sigmoid(param_value, *bounds[name]) if name in bounds else param_value
+            for param_value, name in zip(params, param_names)]
 
 
 def make_trialwise_lan_logp(forward, param_names, bounds, lapse_density):
@@ -109,10 +109,10 @@ def make_trialwise_lan_logp(forward, param_names, bounds, lapse_density):
     lapse probability, mixed with a uniform density `lapse_density`.
     """
     def logp(trial, *params):
-        values = transform_params(params, param_names, bounds)
-        net_input = jnp.concatenate((jnp.array(values[:-1]), trial))
-        p_lapse = values[-1]
-        likelihood = jnp.multiply(jnp.exp(forward(net_input)), 1 - p_lapse) + p_lapse * lapse_density
+        natural_values = transform_params(params, param_names, bounds)
+        network_input = jnp.concatenate((jnp.array(natural_values[:-1]), trial))
+        p_lapse = natural_values[-1]
+        likelihood = jnp.multiply(jnp.exp(forward(network_input)), 1 - p_lapse) + p_lapse * lapse_density
         return jnp.sum(jnp.squeeze(jnp.log(likelihood)))
 
     return logp
@@ -129,12 +129,12 @@ def make_trialwise_omission_logp(forward, param_names, bounds, network="cpn", ou
     (a lapse that always responds in time) this is (1 - p_outlier) * P(omission).
     """
     def logp(omitted, *params):
-        values = transform_params(params, param_names, bounds)
-        net_values = values[:-1] if outlier else values
-        net_out = jnp.squeeze(forward(jnp.array(net_values)))
-        p_omission = omission_probability(net_out, network)
+        natural_values = transform_params(params, param_names, bounds)
+        network_values = natural_values[:-1] if outlier else natural_values
+        network_output = jnp.squeeze(forward(jnp.array(network_values)))
+        p_omission = omission_probability(network_output, network)
         if outlier:
-            p_omission = mix_outlier_omission(p_omission, values[-1], values[-2], rt_max)
+            p_omission = mix_outlier_omission(p_omission, natural_values[-1], natural_values[-2], rt_max)
         return jnp.log(p_omission) * jnp.sum(omitted > 0)
 
     return logp

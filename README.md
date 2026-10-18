@@ -112,7 +112,7 @@ pytensor.config.floatX = "float32"  # must come first: the networks are float32
 
 import pymc as pm
 import pytensor.tensor as pt
-from pymc.sampling import jax as pmj
+from pymc.sampling import jax as pymc_jax
 
 from opn.likelihoods import make_lan_logp, make_omission_logp
 from opn.networks import load_network
@@ -133,7 +133,7 @@ with pm.Model():
     z = pt.constant(0.5)
     pm.Potential("responses", lan(responded, v, a, z, t))
     pm.Potential("omissions", omission(omitted, v, a, z, t, pt.constant(1.25)))
-    idata = pmj.sample_numpyro_nuts(chains=2, draws=500, tune=500)
+    idata = pymc_jax.sample_numpyro_nuts(chains=2, draws=500, tune=500)
 ```
 
 Run your own code with `src/` on the import path:
@@ -288,6 +288,15 @@ runs the fit (4 chains × 1000 tuning + 1000 draws) and the comparison, writing 
 
 `demo/make_demo_data.py` regenerates the data (with a fixed seed); edit it to try other designs.
 
+**Notebook.** `demo/fit_demo.ipynb` walks through the same fit step by step, with plots: the data and its omissions, `prepare_data` and `ModelSpec`, the fit, convergence checks (trace and pair plots), group-level estimates and the difficulty effect, participant estimates against the truth, and a posterior predictive check of omission rates and RTs. It reuses the fit in `demo/output/` from `make demo` if there is one, otherwise it fits (set `REFIT = True` in it to fit again). The container includes JupyterLab:
+
+```bash
+apptainer exec --bind "$PWD" opn.sif jupyter lab --no-browser --port 8888   # then open the printed http://localhost:8888/... URL
+apptainer exec --bind "$PWD" opn.sif make notebook                          # or: run it without a browser, saving the outputs in the notebook
+```
+
+On a cluster, start JupyterLab on a compute node and forward the port to your computer first (`ssh -L 8888:localhost:8888 <node>`). Jupyter is also in `requirements.txt`, so the plain Python environment (and VS Code with it as the kernel) works too. Running the x86 container under emulation on an Apple-silicon Mac does not work for notebooks: the kernel hangs as soon as PyTensor starts its compiler; use the plain Python environment there.
+
 ### The paper's fit
 
 `scripts/hierarchical/fit_hierarchical_angle.py` fits the angle model to the task data:
@@ -341,7 +350,7 @@ a_trial = to_range(idata.posterior["a_trial2"], 0.2, 2.5)  # boundary on every t
 
 Subjects are numbered 0, 1, … in the order they first appear in the data (coordinate `id`). The per-trial variables end in `_trial1` (trials answered within the deadline) or `_trial2` (all trials). Condition effects act on the unbounded scale, so compare conditions through the per-trial values or by transforming `subject value ± effect`.
 
-**Adapting it to another dataset** with the same design: rename your columns to the ones above (or edit the recoding block after `pd.read_csv`), and change the deadline in both places it appears (`df['rt'] > 1.25` and `pm.ConstantData('deadline',1.25)`). For a different design or model, use [Fitting a new dataset](#fitting-a-new-dataset).
+**Adapting it to another dataset** with the same design: rename your columns to the ones above (or edit the recoding block after `pd.read_csv`), and change `DEADLINE = 1.25` near the top of the script (it sets which trials count as omissions, the deadline given to the omission network and the lapse density). For a different design or model, use [Fitting a new dataset](#fitting-a-new-dataset).
 
 ## Library reference (`src/opn`)
 
@@ -359,6 +368,7 @@ Subjects are numbered 0, 1, … in the order they first appear in the data (coor
 
 - `make test` runs pytest on `tests/test_*.py`: the likelihood formulas against direct NumPy computations, the Ops' values and gradients against JAX, the PyMC JAX backend, the simulation helpers, the CLI, loading of every network, `test_hierarchical.py` (data checks and coding, specification errors, models for all three SSMs evaluating identically in PyMC and JAX, and `fit` saving its results), and `test_reference.py`, which checks that the library reproduces log-likelihoods and gradients recorded from the original analysis code (`tests/data/reference_loglik.json`).
 - `make demo` fits the demo dataset and checks parameter recovery (see [Demo](#demo)).
+- `make notebook` executes `demo/fit_demo.ipynb` and saves its outputs in place (see [Demo](#demo)).
 - `make smoke` (`tests/quick_test.py`) runs every analysis script for real with tiny settings (one simulated dataset; 3 participants for the paper's hierarchical fit and for the demo fit (`demo/fit_demo.py`); 20 tuning + 20 draws per chain) and prints PASS/FAIL per script, with the error and log path on failure. `python tests/quick_test.py --only ddm weibull` runs a subset; the hierarchical script is tested only if `data/hddm_all.csv` is present.
 
 Each `make smoke` run is saved in `tests/runs/<date-time>/` (not tracked by git; `results/` is never touched):
@@ -399,7 +409,8 @@ The versions are pinned to early 2024 on purpose: the code uses `from jax.config
 ├── scripts/
 │   ├── simulation/            Parameter-recovery simulations (one job = one grid cell)
 │   └── hierarchical/          The paper's hierarchical fit (put your own fit scripts here)
-├── demo/                      Demo dataset, fit script (template for new data) and recovery check (`make demo`)
+├── demo/                      Demo dataset, fit script (template for new data), recovery check (`make demo`)
+│                              and a step-by-step notebook (fit_demo.ipynb)
 ├── networks/
 │   ├── jax/<model>/{lan,cpn}/ Trained LAN / omission networks (lanfactory, used by the code)
 │   └── onnx/                  ONNX exports of the omission networks

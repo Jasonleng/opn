@@ -6,11 +6,11 @@ import ssms
 from opn.likelihoods import OUTLIER_RT_MAX
 
 
-def simulate(model, theta, n_samples, random_state=None):
+def simulate(model, param_values, n_samples, random_state=None):
     """Simulate (rt, choice) pairs from an ssm-simulators model as an (n_samples, 2) float32 array."""
-    sim_out = ssms.basic_simulators.simulator.simulator(model=model, theta=list(theta), n_samples=n_samples,
-                                                        random_state=random_state)
-    return np.hstack([sim_out["rts"], sim_out["choices"]]).astype(np.float32)
+    simulator_output = ssms.basic_simulators.simulator.simulator(model=model, theta=list(param_values),
+                                                                 n_samples=n_samples, random_state=random_state)
+    return np.hstack([simulator_output["rts"], simulator_output["choices"]]).astype(np.float32)
 
 
 def contaminate(data, p_outlier, rt_max=OUTLIER_RT_MAX, rng=None):
@@ -21,14 +21,14 @@ def contaminate(data, p_outlier, rt_max=OUTLIER_RT_MAX, rng=None):
     NumPy random state unless `rng` (a numpy Generator) is given.
     """
     rng = np.random if rng is None else rng
-    n = len(data)
-    rt_twoside = rng.uniform(-rt_max, rt_max, n)
-    outliers = np.column_stack([np.abs(rt_twoside), 2 * (rt_twoside >= 0) - 1])
-    order = np.arange(n)
-    rng.shuffle(order)
-    mask = order < p_outlier * n
+    n_trials = len(data)
+    signed_rts = rng.uniform(-rt_max, rt_max, n_trials)
+    contaminant_trials = np.column_stack([np.abs(signed_rts), 2 * (signed_rts >= 0) - 1])
+    shuffled_ranks = np.arange(n_trials)
+    rng.shuffle(shuffled_ranks)
+    is_contaminated = shuffled_ranks < p_outlier * n_trials
     data = data.copy()
-    data[mask, :] = outliers[mask, :]
+    data[is_contaminated, :] = contaminant_trials[is_contaminated, :]
     return data
 
 

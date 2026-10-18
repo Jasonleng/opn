@@ -46,16 +46,16 @@ class SummedLogpOp(Op):
         self.grad_op = SummedLogpGradOp(jit(grad(logp, argnums=range(1, 1 + n_params))))
 
     def make_node(self, data, *params):
-        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(p) for p in params]
+        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(param) for param in params]
         return Apply(self, inputs, [pt.scalar()])
 
     def perform(self, node, inputs, output_storage):
         output_storage[0][0] = np.asarray(self.logp(*inputs), dtype=node.outputs[0].dtype)
 
     def grad(self, inputs, output_grads):
-        results = _as_list(self.grad_op(*inputs))
+        param_gradients = _as_list(self.grad_op(*inputs))
         return [pytensor.gradient.grad_not_implemented(self, 0, inputs[0])] + [
-            output_grads[0] * result for result in results]
+            output_grads[0] * param_gradient for param_gradient in param_gradients]
 
 
 class SummedLogpGradOp(Op):
@@ -65,12 +65,12 @@ class SummedLogpGradOp(Op):
         self.logp_grad = logp_grad
 
     def make_node(self, data, *params):
-        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(p) for p in params]
-        return Apply(self, inputs, [inp.type() for inp in inputs[1:]])
+        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(param) for param in params]
+        return Apply(self, inputs, [input_variable.type() for input_variable in inputs[1:]])
 
     def perform(self, node, inputs, outputs):
-        for i, result in enumerate(self.logp_grad(inputs[0], *inputs[1:])):
-            outputs[i][0] = np.asarray(result, dtype=node.outputs[i].dtype)
+        for param_index, param_gradient in enumerate(self.logp_grad(inputs[0], *inputs[1:])):
+            outputs[param_index][0] = np.asarray(param_gradient, dtype=node.outputs[param_index].dtype)
 
 
 def make_summed_logp_op(logp, n_params):
@@ -84,28 +84,28 @@ def make_summed_logp_op(logp, n_params):
 class TrialwiseLogpOp(Op):
     """``op(data, *params)`` -> vector of per-trial log-likelihoods."""
 
-    def __init__(self, logp, params_is_reg):
-        in_axes = [0] + [0 if is_reg else None for is_reg in params_is_reg]
-        vmap_logp = vmap(logp, in_axes=in_axes)
+    def __init__(self, logp, varies_by_trial):
+        in_axes = [0] + [0 if param_varies else None for param_varies in varies_by_trial]
+        batched_logp = vmap(logp, in_axes=in_axes)
 
-        def vmap_logp_vjp(data, *params, gz):
-            _, vjp_fn = vjp(vmap_logp, data, *params)
-            return vjp_fn(gz)[1:]
+        def batched_logp_vjp(data, *params, output_gradient):
+            _, pullback = vjp(batched_logp, data, *params)
+            return pullback(output_gradient)[1:]
 
-        self.logp_nojit = vmap_logp
-        self.logp = jit(vmap_logp)
-        self.vjp_op = TrialwiseLogpVJPOp(jit(vmap_logp_vjp))
+        self.logp_nojit = batched_logp
+        self.logp = jit(batched_logp)
+        self.vjp_op = TrialwiseLogpVJPOp(jit(batched_logp_vjp))
 
     def make_node(self, data, *params):
-        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(p) for p in params]
+        inputs = [pt.as_tensor_variable(data)] + [pt.as_tensor_variable(param) for param in params]
         return Apply(self, inputs, [pt.vector()])
 
     def perform(self, node, inputs, output_storage):
         output_storage[0][0] = np.asarray(self.logp(*inputs), dtype=node.outputs[0].dtype)
 
     def grad(self, inputs, output_gradients):
-        results = _as_list(self.vjp_op(inputs[0], *inputs[1:], gz=output_gradients[0]))
-        return [pytensor.gradient.grad_not_implemented(self, 0, inputs[0])] + results
+        param_gradients = _as_list(self.vjp_op(inputs[0], *inputs[1:], output_gradient=output_gradients[0]))
+        return [pytensor.gradient.grad_not_implemented(self, 0, inputs[0])] + param_gradients
 
 
 class TrialwiseLogpVJPOp(Op):
@@ -114,17 +114,18 @@ class TrialwiseLogpVJPOp(Op):
     def __init__(self, logp_vjp):
         self.logp_vjp = logp_vjp
 
-    def make_node(self, data, *params, gz):
-        inputs = ([pt.as_tensor_variable(data)] + [pt.as_tensor_variable(p) for p in params]
-                  + [pt.as_tensor_variable(gz)])
-        return Apply(self, inputs, [inp.type() for inp in inputs[1:-1]])
+    def make_node(self, data, *params, output_gradient):
+        inputs = ([pt.as_tensor_variable(data)] + [pt.as_tensor_variable(param) for param in params]
+                  + [pt.as_tensor_variable(output_gradient)])
+        return Apply(self, inputs, [input_variable.type() for input_variable in inputs[1:-1]])
 
     def perform(self, node, inputs, outputs):
-        for i, result in enumerate(self.logp_vjp(inputs[0], *inputs[1:-1], gz=inputs[-1])):
-            outputs[i][0] = np.asarray(result, dtype=node.outputs[i].dtype)
+        param_gradients = self.logp_vjp(inputs[0], *inputs[1:-1], output_gradient=inputs[-1])
+        for param_index, param_gradient in enumerate(param_gradients):
+            outputs[param_index][0] = np.asarray(param_gradient, dtype=node.outputs[param_index].dtype)
 
 
-def make_trialwise_logp_op(logp, params_is_reg):
-    """Wrap a trialwise log-likelihood; `params_is_reg[i]` marks parameters that vary per trial."""
+def make_trialwise_logp_op(logp, varies_by_trial):
+    """Wrap a trialwise log-likelihood; `varies_by_trial[i]` marks parameters that vary per trial."""
     _register_jax_dispatch()
-    return TrialwiseLogpOp(logp, params_is_reg)
+    return TrialwiseLogpOp(logp, varies_by_trial)

@@ -17,18 +17,18 @@ def test_network_folder_exists():
     assert os.path.isdir(NETWORK_DIR)
 
 
-@pytest.mark.parametrize("key", sorted(NETWORKS))
-def test_network_files_exist(key):
-    for path in network_files(*key):
+@pytest.mark.parametrize("model_and_kind", sorted(NETWORKS))
+def test_network_files_exist(model_and_kind):
+    for path in network_files(*model_and_kind):
         assert os.path.isfile(path), path
 
 
 @pytest.mark.parametrize("model,kind", sorted(NETWORKS))
 def test_network_forward_pass(model, kind):
     forward = load_network(model, kind)
-    extra = [0.7, 1.0] if kind == "lan" else [1.25]
-    x = np.array([PARAMS[model] + extra] * 3, dtype=np.float32)
-    assert x.shape[1] == input_dim(model, kind)
-    out = np.asarray(forward(x))
-    assert out.shape == (3, 1)
-    assert np.all(np.isfinite(out))
+    extra_inputs = [0.7, 1.0] if kind == "lan" else [1.25]
+    network_input = np.array([PARAMS[model] + extra_inputs] * 3, dtype=np.float32)
+    assert network_input.shape[1] == input_dim(model, kind)
+    network_output = np.asarray(forward(network_input))
+    assert network_output.shape == (3, 1)
+    assert np.all(np.isfinite(network_output))

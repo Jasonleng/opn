@@ -13,9 +13,9 @@ def simulation_parser(description, n_cells, n_reps, out_dir):
     return parser
 
 
-def save_results(df, out_dir, jobid):
+def save_results(results_table, out_dir, jobid):
     """Write ``out_dir/output_<jobid>.csv`` (creating out_dir) and return its path."""
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"output_{jobid}.csv")
-    df.to_csv(path, index=False)
-    return path
+    output_path = os.path.join(out_dir, f"output_{jobid}.csv")
+    results_table.to_csv(output_path, index=False)
+    return output_path

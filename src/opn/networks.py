@@ -40,20 +40,20 @@ def input_dim(model, kind):
 
 def network_files(model, kind):
     """Absolute paths of the (config, state) files for a registered network."""
-    config, state = NETWORKS[(model, kind)]
-    return os.path.join(NETWORK_DIR, config), os.path.join(NETWORK_DIR, state)
+    config_file, state_file = NETWORKS[(model, kind)]
+    return os.path.join(NETWORK_DIR, config_file), os.path.join(NETWORK_DIR, state_file)
 
 
-def load_network_from_files(config_path, state_path, input_dim, seed=42, retries=1):
-    """Load a lanfactory network and return its (un-jitted) forward pass.
+def load_network_from_files(config_path, state_path, n_inputs, seed=42, retries=1):
+    """Load a lanfactory network with n_inputs inputs and return its (un-jitted) forward pass.
 
     Loading is retried `retries` times, as the original analysis scripts did.
     """
     for attempt in range(retries + 1):
         try:
-            factory = lanfactory.trainers.MLPJaxFactory(network_config=str(config_path), train=False)
-            forward, _ = factory.make_forward_partial(
-                seed=seed, input_dim=input_dim, state=str(state_path), add_jitted=False)
+            network_factory = lanfactory.trainers.MLPJaxFactory(network_config=str(config_path), train=False)
+            forward, _ = network_factory.make_forward_partial(
+                seed=seed, input_dim=n_inputs, state=str(state_path), add_jitted=False)
             return forward
         except Exception:
             if attempt == retries:

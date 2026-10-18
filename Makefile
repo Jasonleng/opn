@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: test smoke demo
+.PHONY: test smoke demo notebook
 
 # Unit tests for the opn library, incl. equivalence with the original analysis code (~1 min)
 test:
@@ -16,3 +16,8 @@ smoke:
 demo:
 	$(PYTHON) demo/fit_demo.py --out-dir demo/output
 	$(PYTHON) demo/check_recovery.py demo/output
+
+# Execute the demo notebook without a browser and save its outputs in place
+# (reuses demo/output/ from `make demo` if present, otherwise fits; see the notebook)
+notebook:
+	jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=7200 demo/fit_demo.ipynb

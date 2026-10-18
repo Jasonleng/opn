@@ -6,9 +6,9 @@ import pytest
 pytensor.config.floatX = "float32"
 
 
-def _fake_forward(x):
+def _fake_forward(network_input):
     """Stand-in network: log-output -0.5 * sum(x**2) is <= 0, so it works as a LAN or omission network."""
-    return -0.5 * jnp.sum(jnp.asarray(x) ** 2, axis=-1, keepdims=True)
+    return -0.5 * jnp.sum(jnp.asarray(network_input) ** 2, axis=-1, keepdims=True)
 
 
 @pytest.fixture

@@ -18,10 +18,10 @@ with these float32 networks.
 import os as _os
 
 
-def set_cpu_devices(n):
-    """Give JAX n CPU devices, so that n MCMC chains run in parallel.
+def set_cpu_devices(n_devices):
+    """Give JAX n_devices CPU devices, so that as many MCMC chains run in parallel.
 
     Call before JAX is imported (i.e. before importing pymc or the other opn modules);
     has no effect afterwards or if XLA_FLAGS is already set.
     """
-    _os.environ.setdefault("XLA_FLAGS", f"--xla_force_host_platform_device_count={int(n)}")
+    _os.environ.setdefault("XLA_FLAGS", f"--xla_force_host_platform_device_count={int(n_devices)}")

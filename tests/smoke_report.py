@@ -23,11 +23,11 @@ MAX_ROWS = 50  # rows shown from a script's own output CSV (posterior summaries 
 def environment(root):
     """Python, package versions, git commit and container image of this run."""
     versions = {}
-    for pkg in PACKAGES:
+    for package in PACKAGES:
         try:
-            versions[pkg] = importlib.metadata.version(pkg)
+            versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
-            versions[pkg] = None
+            versions[package] = None
 
     def git(*args):
         try:
@@ -49,8 +49,8 @@ def environment(root):
 
 def write_summary(out_root, results, meta):
     path = os.path.join(out_root, "summary.json")
-    with open(path, "w") as f:
-        json.dump({**meta, "results": results}, f, indent=2)
+    with open(path, "w") as summary_file:
+        json.dump({**meta, "results": results}, summary_file, indent=2)
     return path
 
 
@@ -94,8 +94,8 @@ dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
 """
 
 
-def _esc(x):
-    return html.escape(str(x))
+def _esc(value):
+    return html.escape(str(value))
 
 
 def _fmt(value):
@@ -106,9 +106,9 @@ def _fmt(value):
     return f"{number:.4g}"
 
 
-def _is_num(x):
+def _is_num(value):
     try:
-        float(x)
+        float(value)
         return True
     except (TypeError, ValueError):
         return False
@@ -116,15 +116,15 @@ def _is_num(x):
 
 def _table(header, rows):
     """HTML table; numeric cells are formatted and right-aligned, other cells escaped."""
-    head = "".join(f"<th>{_esc(h)}</th>" for h in header)
-    body = "".join("<tr>" + "".join(f'<td class="num">{_fmt(c)}</td>' if _is_num(c) else f"<td>{_esc(c)}</td>"
-                                    for c in row) + "</tr>" for row in rows)
+    head = "".join(f"<th>{_esc(heading)}</th>" for heading in header)
+    body = "".join("<tr>" + "".join(f'<td class="num">{_fmt(cell)}</td>' if _is_num(cell) else f"<td>{_esc(cell)}</td>"
+                                    for cell in row) + "</tr>" for row in rows)
     return f'<div class="scroll"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def _csv_table(path, max_rows=None):
-    with open(path, newline="") as f:
-        rows = list(csv.reader(f))
+    with open(path, newline="") as csv_file:
+        rows = list(csv.reader(csv_file))
     if not rows:
         return "<p class='muted'>empty file</p>"
     return _table(rows[0], rows[1:] if max_rows is None else rows[1:max_rows + 1])
@@ -142,56 +142,60 @@ def _fit_block(run_dir, fit):
 def _log_tail(path):
     if not os.path.isfile(path):
         return ""
-    lines = [l.rstrip() for l in open(path, errors="replace") if l.strip() and not NOISE.search(l)]
+    lines = [line.rstrip() for line in open(path, errors="replace") if line.strip() and not NOISE.search(line)]
     return "\n".join(lines[-LOG_TAIL:])
 
 
 def write_html(out_root, results, meta):
-    counts = {s: sum(r["status"] == s for r in results) for s in ("PASS", "FAIL", "SKIP")}
+    counts = {status: sum(script_result["status"] == status for script_result in results)
+              for status in ("PASS", "FAIL", "SKIP")}
     verdict = "FAIL" if counts["FAIL"] else "PASS"
     verdict_text = (f"{counts['FAIL']} of {len(results)} scripts failed" if counts["FAIL"]
                     else f"All {counts['PASS']} scripts ran" + (f" ({counts['SKIP']} skipped)" if counts["SKIP"] else ""))
 
     rows = "".join(
-        f"<tr><td><a href='#{_esc(r['name'])}'>{_esc(r['name'])}</a></td>"
-        f"<td><span class='badge {r['status']}'>{r['status']}</span></td>"
-        f"<td class='num'>{r['seconds']:.0f}</td><td>{_esc(r['message'])}</td></tr>" for r in results)
+        f"<tr><td><a href='#{_esc(script_result['name'])}'>{_esc(script_result['name'])}</a></td>"
+        f"<td><span class='badge {script_result['status']}'>{script_result['status']}</span></td>"
+        f"<td class='num'>{script_result['seconds']:.0f}</td><td>{_esc(script_result['message'])}</td></tr>"
+        for script_result in results)
     overview = ("<div class='scroll'><table><thead><tr><th>Script</th><th>Status</th><th>Time (s)</th>"
                 f"<th>Result</th></tr></thead><tbody>{rows}</tbody></table></div>")
 
     sections = []
-    for r in results:
-        run_dir = os.path.join(out_root, r["name"])
-        previews = [_fit_block(run_dir, fit) for fit in r.get("fits", [])]
-        for out in r["outputs"]:
-            if out.endswith(".csv"):
-                previews.append(f"<h4>Script output <code>{_esc(out)}</code></h4>"
-                                f"{_csv_table(os.path.join(run_dir, out), MAX_ROWS)}")
-        tail = _log_tail(os.path.join(out_root, r["log"]))
-        log = (f"<details{' open' if r['status'] == 'FAIL' else ''}><summary>Last lines of "
-               f"<code>{_esc(r['log'])}</code></summary><pre>{_esc(tail)}</pre></details>") if tail else ""
+    for script_result in results:
+        run_dir = os.path.join(out_root, script_result["name"])
+        previews = [_fit_block(run_dir, fit) for fit in script_result.get("fits", [])]
+        for output_file in script_result["outputs"]:
+            if output_file.endswith(".csv"):
+                previews.append(f"<h4>Script output <code>{_esc(output_file)}</code></h4>"
+                                f"{_csv_table(os.path.join(run_dir, output_file), MAX_ROWS)}")
+        tail = _log_tail(os.path.join(out_root, script_result["log"]))
+        log = (f"<details{' open' if script_result['status'] == 'FAIL' else ''}><summary>Last lines of "
+               f"<code>{_esc(script_result['log'])}</code></summary><pre>{_esc(tail)}</pre></details>") if tail else ""
         sections.append(
-            f"<section class='panel' id='{_esc(r['name'])}'>"
-            f"<h3><span class='badge {r['status']}'>{r['status']}</span>{_esc(r['name'])}"
-            f"<span class='muted small'><code>{_esc(r['script'])}</code> · {r['seconds']:.0f}s</span></h3>"
-            + (f"<p class='small'>{_esc(r['message'])}</p>" if r["status"] != "PASS" else "")
+            f"<section class='panel' id='{_esc(script_result['name'])}'>"
+            f"<h3><span class='badge {script_result['status']}'>{script_result['status']}</span>"
+            f"{_esc(script_result['name'])}<span class='muted small'><code>{_esc(script_result['script'])}</code>"
+            f" · {script_result['seconds']:.0f}s</span></h3>"
+            + (f"<p class='small'>{_esc(script_result['message'])}</p>" if script_result["status"] != "PASS" else "")
             + f"{''.join(previews)}{log}</section>")
 
-    env = meta["environment"]
-    pkgs = ", ".join(f"{k} {v}" for k, v in env["packages"].items() if v)
-    git = env["git_commit"] or "unknown"
-    if env["git_uncommitted_changes"]:
-        git += f" (+{env['git_uncommitted_changes']} uncommitted changes)"
-    s = meta["settings"]
+    environment_info = meta["environment"]
+    package_versions = ", ".join(f"{package} {version}"
+                                 for package, version in environment_info["packages"].items() if version)
+    git_description = environment_info["git_commit"] or "unknown"
+    if environment_info["git_uncommitted_changes"]:
+        git_description += f" (+{environment_info['git_uncommitted_changes']} uncommitted changes)"
+    settings = meta["settings"]
     details = (
         f"<dl><dt>Started</dt><dd>{_esc(meta['started'])}</dd>"
         f"<dt>Wall time</dt><dd>{meta['wall_seconds']:.0f} s</dd>"
-        f"<dt>Settings</dt><dd>NUTS {s['tune']} tuning + {s['draws']} draws per chain; simulations: grid cell 0, "
-        f"1 dataset; hierarchical: {s['n_subj'] or 'all'} subjects</dd>"
-        f"<dt>Git commit</dt><dd>{_esc(git)}</dd>"
-        f"<dt>Container</dt><dd>{_esc(env['container'] or 'none')}</dd>"
-        f"<dt>Python</dt><dd>{_esc(env['python'])} on {_esc(env['platform'])}</dd>"
-        f"<dt>Packages</dt><dd>{_esc(pkgs)}</dd></dl>")
+        f"<dt>Settings</dt><dd>NUTS {settings['tune']} tuning + {settings['draws']} draws per chain; "
+        f"simulations: grid cell 0, 1 dataset; hierarchical: {settings['n_subj'] or 'all'} subjects</dd>"
+        f"<dt>Git commit</dt><dd>{_esc(git_description)}</dd>"
+        f"<dt>Container</dt><dd>{_esc(environment_info['container'] or 'none')}</dd>"
+        f"<dt>Python</dt><dd>{_esc(environment_info['python'])} on {_esc(environment_info['platform'])}</dd>"
+        f"<dt>Packages</dt><dd>{_esc(package_versions)}</dd></dl>")
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -211,15 +215,15 @@ they are sampled on (unbounded for the Weibull and hierarchical models).</p>
 </main></body></html>
 """
     path = os.path.join(out_root, "report.html")
-    with open(path, "w") as f:
-        f.write(page)
+    with open(path, "w") as report_file:
+        report_file.write(page)
     return path
 
 
 if __name__ == "__main__":
     # Rebuild report.html of a saved run: python tests/smoke_report.py tests/runs/<run>
     run_dir = sys.argv[1]
-    with open(os.path.join(run_dir, "summary.json")) as f:
-        saved = json.load(f)
+    with open(os.path.join(run_dir, "summary.json")) as summary_file:
+        saved = json.load(summary_file)
     results = saved.pop("results")
     print(write_html(run_dir, results, saved))

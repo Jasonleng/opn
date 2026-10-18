@@ -53,8 +53,9 @@ parser.add_argument("--draws", type=int, help=f"override draws per chain ({SAMPL
 parser.add_argument("--tune", type=int, help=f"override tuning steps per chain ({SAMPLING['tune']})")
 parser.add_argument("--out-dir", default=OUT_DIR, help="output folder (default: %(default)s)")
 args = parser.parse_args()
-SAMPLING.update({k: getattr(args, k) for k in ("draws", "tune") if getattr(args, k) is not None})
+SAMPLING.update({setting: getattr(args, setting) for setting in ("draws", "tune")
+                 if getattr(args, setting) is not None})
 
-table = hier.first_subjects(pd.read_csv(DATA_FILE), COLUMNS["subject"], args.n_subjects)
-data = hier.prepare_data(table, DEADLINE, **COLUMNS, predictors=SPEC.predictors)
+trial_table = hier.first_subjects(pd.read_csv(DATA_FILE), COLUMNS["subject"], args.n_subjects)
+data = hier.prepare_data(trial_table, DEADLINE, **COLUMNS, predictors=SPEC.predictors)
 hier.fit(data, SPEC, args.out_dir, **SAMPLING)

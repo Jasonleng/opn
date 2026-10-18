@@ -38,17 +38,17 @@ NEEDS_DATA = {"hierarchical"}
 # name -> (script, function(run_dir, opts) -> command-line args)
 SCRIPTS = {
     "hierarchical": ("scripts/hierarchical/fit_hierarchical_angle.py",
-                     lambda d, o: ["--n-subjects", str(o.n_subj), "--out", os.path.join(d, "posterior.nc")]),
+                     lambda run_dir, opts: ["--n-subjects", str(opts.n_subj), "--out", os.path.join(run_dir, "posterior.nc")]),
     "hierarchical_demo": ("demo/fit_demo.py",
-                          lambda d, o: ["--n-subjects", str(o.n_subj), "--out-dir", d]),
+                          lambda run_dir, opts: ["--n-subjects", str(opts.n_subj), "--out-dir", run_dir]),
     "angle": ("scripts/simulation/recover_angle.py",
-              lambda d, o: ["0", "--n-reps", "1", "--out-dir", d]),
+              lambda run_dir, opts: ["0", "--n-reps", "1", "--out-dir", run_dir]),
     "angle_outlier": ("scripts/simulation/recover_angle_outlier.py",
-                      lambda d, o: ["0", "--n-reps", "1", "--out-dir", d]),
+                      lambda run_dir, opts: ["0", "--n-reps", "1", "--out-dir", run_dir]),
     "ddm": ("scripts/simulation/recover_ddm.py",
-            lambda d, o: ["0", "--n-reps", "1", "--out-dir", d]),
+            lambda run_dir, opts: ["0", "--n-reps", "1", "--out-dir", run_dir]),
     "weibull": ("scripts/simulation/recover_weibull.py",
-                lambda d, o: ["0", "--n-reps", "1", "--out-dir", d]),
+                lambda run_dir, opts: ["0", "--n-reps", "1", "--out-dir", run_dir]),
 }
 
 # Runs inside the child process (cwd = the script's run folder): shorten NUTS, record
@@ -62,10 +62,10 @@ from numpyro.infer import MCMC
 
 draws, tune = int(os.environ["QT_DRAWS"]), int(os.environ["QT_TUNE"])
 _mcmc_init = MCMC.__init__
-def quick_mcmc_init(self, *a, **k):
+def quick_mcmc_init(self, *args, **kwargs):
     # keep the script's num_chains: PyMC has already drawn one init point per chain
-    k.update(num_samples=draws, num_warmup=tune, progress_bar=False)
-    _mcmc_init(self, *a, **k)
+    kwargs.update(num_samples=draws, num_warmup=tune, progress_bar=False)
+    _mcmc_init(self, *args, **kwargs)
 MCMC.__init__ = quick_mcmc_init
 
 fits = []
@@ -73,16 +73,16 @@ def record(stem, label, terms, table, note=""):
     path = stem + "_summary.csv"
     table.to_csv(path, index_label="parameter")
     fits.append({"label": label, "terms": terms, "summary": path, "note": note})
-    with open("fits.json", "w") as f:
-        json.dump(fits, f, indent=2)
+    with open("fits.json", "w") as fits_file:
+        json.dump(fits, fits_file, indent=2)
 
 # The scripts call pm.summary(trace) after every fit. pm.summary is arviz.stats.summary,
 # copied when pymc is imported, so patching it here records each fit's full table.
 _summary = arviz.stats.summary
-def recording_summary(data, *a, **k):
-    table = _summary(data, *a, **k)
+def recording_summary(data, *args, **kwargs):
+    table = _summary(data, *args, **kwargs)
     try:
-        terms = [p.name for p in sys.modules["pymc"].modelcontext(None).potentials]
+        terms = [potential.name for potential in sys.modules["pymc"].modelcontext(None).potentials]
     except Exception:
         terms = []
     record(f"fit_{len(fits) + 1}", f"Fit {len(fits) + 1}", terms, table)
@@ -94,13 +94,14 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 
 # Scripts that save their posterior without summarising it (the paper's hierarchical fit):
 # summarise each .nc, leaving out trial-level variables (more than 50 values per draw)
-for name in sorted(f for f in os.listdir(".") if f.endswith(".nc") and not fits):
-    post = arviz.from_netcdf(name).posterior
-    per_draw = {v: post[v].size // (post.sizes["chain"] * post.sizes["draw"]) for v in post.data_vars}
-    keep = [v for v, n in per_draw.items() if n <= 50]
-    left_out = sorted(set(per_draw) - set(keep))
+for name in sorted(file for file in os.listdir(".") if file.endswith(".nc") and not fits):
+    posterior = arviz.from_netcdf(name).posterior
+    values_per_draw = {var: posterior[var].size // (posterior.sizes["chain"] * posterior.sizes["draw"])
+                       for var in posterior.data_vars}
+    kept_vars = [var for var, n_values in values_per_draw.items() if n_values <= 50]
+    left_out = sorted(set(values_per_draw) - set(kept_vars))
     note = f"Trial-level variables left out: {', '.join(left_out)}." if left_out else ""
-    record(name[:-3], name, [], _summary(post, var_names=keep), note)
+    record(name[:-3], name, [], _summary(posterior, var_names=kept_vars), note)
 """
 
 def run_one(name, out_root, cache_dir, opts):
@@ -111,8 +112,8 @@ def run_one(name, out_root, cache_dir, opts):
     log_path = os.path.join(run_dir, "log.txt")
 
     def result(status, seconds, message):
-        outputs = sorted(f for f in os.listdir(run_dir)
-                         if f.endswith((".csv", ".nc")) and not f.endswith("_summary.csv"))
+        outputs = sorted(file for file in os.listdir(run_dir)
+                         if file.endswith((".csv", ".nc")) and not file.endswith("_summary.csv"))
         fits_file = os.path.join(run_dir, "fits.json")
         fits = json.load(open(fits_file)) if os.path.isfile(fits_file) else []
         return {"name": name, "script": script, "status": status, "seconds": round(seconds, 1),
@@ -127,30 +128,30 @@ def run_one(name, out_root, cache_dir, opts):
                MPLBACKEND="Agg",
                PYTENSOR_FLAGS=f"base_compiledir={os.path.join(cache_dir, name)}",
                XLA_PYTHON_CLIENT_PREALLOCATE="false")
-    cmd = [sys.executable, "-c", BOOTSTRAP, os.path.join(ROOT, script)] + make_args(run_dir, opts)
+    command = [sys.executable, "-c", BOOTSTRAP, os.path.join(ROOT, script)] + make_args(run_dir, opts)
 
     start = time.time()
     with open(log_path, "w") as log:
         try:
-            proc = subprocess.run(cmd, cwd=run_dir, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                  timeout=opts.timeout)
-            code = proc.returncode
+            process = subprocess.run(command, cwd=run_dir, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                     timeout=opts.timeout)
+            exit_code = process.returncode
         except subprocess.TimeoutExpired:
-            code = None
+            exit_code = None
     elapsed = time.time() - start
 
-    if code is None:
+    if exit_code is None:
         return result("FAIL", elapsed, f"timed out after {opts.timeout}s")
-    if code != 0:
+    if exit_code != 0:
         lines = open(log_path).read().strip().splitlines()
-        errors = [l for l in lines if re.match(r"^\w+(Error|Exception|Interrupt)\b", l)]
+        errors = [line for line in lines if re.match(r"^\w+(Error|Exception|Interrupt)\b", line)]
         reason = (errors or lines or ["(no output)"])[-1]
-        return result("FAIL", elapsed, f"exit code {code}: {reason}")
+        return result("FAIL", elapsed, f"exit code {exit_code}: {reason}")
 
-    res = result("PASS", elapsed, "")
-    if not res["outputs"]:
-        return {**res, "status": "FAIL", "message": "finished but wrote no .csv/.nc output"}
-    return {**res, "message": "wrote " + ", ".join(res["outputs"])}
+    passed = result("PASS", elapsed, "")
+    if not passed["outputs"]:
+        return {**passed, "status": "FAIL", "message": "finished but wrote no .csv/.nc output"}
+    return {**passed, "message": "wrote " + ", ".join(passed["outputs"])}
 
 
 def main():
@@ -175,27 +176,28 @@ def main():
 
     print(f"Running {len(selected)} script(s), saving to {out_root}\n", flush=True)
     results = []
-    t0 = time.time()
+    wall_start = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=opts.jobs) as pool:
         futures = [pool.submit(run_one, name, out_root, cache_dir, opts) for name in selected]
-        for fut in concurrent.futures.as_completed(futures):
-            r = fut.result()
-            results.append(r)
-            print(f"  [{r['status']}] {r['name']:<18} {r['seconds']:6.0f}s  {r['message']}", flush=True)
-    results.sort(key=lambda r: list(SCRIPTS).index(r["name"]))
+        for future in concurrent.futures.as_completed(futures):
+            script_result = future.result()
+            results.append(script_result)
+            print(f"  [{script_result['status']}] {script_result['name']:<18} {script_result['seconds']:6.0f}s  "
+                  f"{script_result['message']}", flush=True)
+    results.sort(key=lambda script_result: list(SCRIPTS).index(script_result["name"]))
 
     meta = {"started": time.strftime("%Y-%m-%d %H:%M:%S %Z", started),
-            "wall_seconds": round(time.time() - t0, 1),
+            "wall_seconds": round(time.time() - wall_start, 1),
             "settings": {"draws": opts.draws, "tune": opts.tune, "n_subj": opts.n_subj},
             "environment": smoke_report.environment(ROOT)}
     smoke_report.write_summary(out_root, results, meta)
     report = smoke_report.write_html(out_root, results, meta)
 
-    failed = [r for r in results if r["status"] == "FAIL"]
-    skipped = sum(r["status"] == "SKIP" for r in results)
+    failed = [script_result for script_result in results if script_result["status"] == "FAIL"]
+    skipped = sum(script_result["status"] == "SKIP" for script_result in results)
     print(f"\n{len(results) - len(failed) - skipped}/{len(results)} passed" + (f", {skipped} skipped" if skipped else ""))
-    for r in failed:
-        print(f"  see {os.path.join(out_root, r['log'])}")
+    for script_result in failed:
+        print(f"  see {os.path.join(out_root, script_result['log'])}")
     print(f"\nReport: {report}")
     sys.exit(1 if failed else 0)
 
